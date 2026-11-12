@@ -118,6 +118,16 @@ manual steps below are the same flow, for doing it by hand.
 - `capacitor.config.ts` — app ID and name. No server URL: the app
   is bundled, not loaded from a host.
 - `package.json` — Capacitor 6 dependencies and scripts.
+- `icon/` — the RoadHouse launcher icon (amber roadhouse at the end
+  of a highway, on dark charcoal). `icon/res/` mirrors the Android
+  `res/` layout — `ic_launcher.png`, `ic_launcher_round.png`, and
+  the adaptive `ic_launcher_foreground.png` at every density, the
+  `mipmap-anydpi-v26` adaptive-icon definitions, and the charcoal
+  background color — and the workflow's "Apply the RoadHouse app
+  icon" step copies it over the Capacitor-generated `res/` before
+  building, so the installed APK shows this icon on the home screen
+  and in the app drawer. `icon-512.png` / `icon-1024.png` are the
+  full-size masters.
 - `www/` — the built RoadHouse web bundle (`index.html` +
   `assets/`) that gets packaged into the APK. Refresh it with a
   newer bundle when the app changes (setup step 2).

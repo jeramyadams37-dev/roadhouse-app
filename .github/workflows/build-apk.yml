@@ -59,6 +59,24 @@ jobs:
           npx cap add android
           npx cap sync android
 
+      # Capacitor generates the android/ project with its own default
+      # launcher icon. The RoadHouse icon set lives in this repo under
+      # icon/res/ (mirrors the android res/ layout: ic_launcher.png,
+      # ic_launcher_round.png, and ic_launcher_foreground.png at every
+      # density, the adaptive-icon XMLs, and the background color), so
+      # copy it over the generated res/ before anything is built —
+      # both APK builds below then carry the RoadHouse icon.
+      - name: Apply the RoadHouse app icon
+        run: |
+          set -e
+          cp -r icon/res/. android/app/src/main/res/
+          ls android/app/src/main/res/mipmap-mdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-hdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png \
+             android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+
       - name: Build the debug APK (always — installs with no keystore)
         working-directory: android
         run: ./gradlew assembleDebug
