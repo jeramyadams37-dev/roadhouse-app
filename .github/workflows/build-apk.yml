@@ -1,0 +1,110 @@
+name: Build RoadHouse APK
+
+# Same pattern as AutoHustle v10: push the code (or run this workflow
+# by hand) and GitHub builds the APK — no Android SDK needed on the
+# phone. Download the finished APK from the run's Artifacts section.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The ubuntu-latest runner ships the Android SDK pre-installed
+      # (ANDROID_HOME / ANDROID_SDK_ROOT already point at it), so use
+      # that directly. The previous third-party SDK setup action
+      # printed the SDK license agreement and then failed, skipping
+      # every later step. Here we only accept the licenses and, if
+      # they are missing, install the platform and build-tools the
+      # Capacitor 6 / AGP 8 build compiles against.
+      - name: Set up the Android SDK (pre-installed on the runner)
+        run: |
+          set -e
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          test -d "$ANDROID_HOME"
+          ls "$ANDROID_HOME"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            if [ ! -d "$ANDROID_HOME/platforms/android-34" ] || [ ! -d "$ANDROID_HOME/build-tools/34.0.0" ]; then
+              "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+            fi
+          fi
+          ls "$ANDROID_HOME/platforms"
+          ls "$ANDROID_HOME/build-tools"
+
+      - name: Install Capacitor dependencies
+        run: npm install
+
+      - name: Generate the Android project and sync the app into it
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Build the debug APK (always — installs with no keystore)
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadhouse-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # The release APK is signed with Jeramy's own keystore, supplied
+      # through GitHub secrets. Until those four secrets exist this
+      # step is skipped and the debug APK above is the installable one.
+      - name: Check for signing secrets
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ROADHOUSE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "No ROADHOUSE_KEYSTORE_BASE64 secret — skipping the signed release APK."
+          fi
+
+      - name: Build the signed release APK
+        if: steps.signing.outputs.signed == 'true'
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ROADHOUSE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ROADHOUSE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ROADHOUSE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ROADHOUSE_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/roadhouse-release.keystore"
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/roadhouse-release.keystore" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+
+      - name: Upload the signed release APK
+        if: steps.signing.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadhouse-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
