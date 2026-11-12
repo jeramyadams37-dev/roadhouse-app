@@ -6,19 +6,36 @@ AutoHustle v10: a [Capacitor](https://capacitorjs.com) shell
 APK. No Android Studio or SDK needed on the phone — GitHub does the
 building.
 
-**How it works:** RoadHouse is a standalone offline app. The whole
-web app is bundled into the APK (the `www/` folder below), and
-everything the driver logs — shifts, miles, expenses, board posts,
-chat, pre-shift checks, profile — is saved on the phone, in the
-app's own storage. There is no hosted backend and no live address
-to set: the APK works fully offline. Sign-in is required and is
-handled on the phone too — each driver creates an account (driver
-name + password, stored only as a salted hash) and gets their own
-log, posts, and taxes; signing out locks the app back to the
-sign-in screen. The only network
-call the app ever makes is the optional Timeline place-address
-lookup against OpenStreetMap, which quietly falls back to showing
-coordinates when there's no connection.
+**How it works:** RoadHouse is a standalone app with one live
+part. The whole web app is bundled into the APK (the `www/` folder
+below), and everything private the driver logs — shifts, miles,
+expenses, pre-shift checks, profile — is saved on the phone, in
+the app's own storage, and works fully offline. Sign-in is handled
+on the phone too — each driver creates an account (driver name +
+password, stored only as a salted hash) and gets their own log and
+taxes; signing out locks the app back to the sign-in screen. The
+shared board and chat are the exception: they talk to the public
+RoadHouse backend on Cloud Run (the `backend/` folder in the
+package, deployed once with `roadhouse-deploy-backend.sh` — the
+same Cloud Run pattern as the AutoHustle backend). The backend's
+public address is baked into the package at `www/rh-config.json`
+by the deploy script; the board polls it and chat sends and
+receives through it, so every driver sees the same board and chat.
+With no connection (or before the backend is deployed) the board
+and chat show their last-seen copies and the rest of the app is
+unaffected. The only other network call the app ever makes is the
+optional Timeline place-address lookup against OpenStreetMap,
+which quietly falls back to showing coordinates when there's no
+connection.
+
+There is deliberately no `server.url` in `capacitor.config.ts`:
+that setting would make the WebView load the whole app from the
+server instead of the bundle, changing the app's origin — the
+on-device accounts and logs live in the bundled origin's storage,
+so every installed driver would open an empty app — and the app
+wouldn't open at all offline. The bundle stays on the phone; only
+the board and chat calls go out, to the address in
+`www/rh-config.json`.
 
 Because the data lives on the phone, two habits matter:
 
@@ -42,8 +59,9 @@ downloads that package this whole setup:
 
 - **`roadhouse-apk.zip`** — this `apk/` folder, complete
   (`capacitor.config.ts`, `package.json`, `www/` with the built app,
-  `.github/workflows/build-apk.yml`, this README), plus the build
-  script below at the top level of the zip.
+  `.github/workflows/build-apk.yml`, this README), plus a `backend/`
+  folder (the shared board/chat server) and the two scripts below
+  at the top level of the zip.
 - **`roadhouse-apk-build.sh`** — a plain-text Termux script. With
   both files in Downloads, running
   `bash ~/storage/shared/Download/roadhouse-apk-build.sh` does the
@@ -51,6 +69,17 @@ downloads that package this whole setup:
   GitHub as its own repo, adds the four signing secrets, runs the
   **Build RoadHouse APK** workflow, and downloads and opens the
   finished APK for install.
+- **`roadhouse-deploy-backend.sh`** — a plain-text script, run
+  **once** (before the build, so the package being built carries
+  the backend's address). Run it where `gcloud` is signed in to
+  your Google Cloud project — Termux if gcloud is installed there,
+  or Google Cloud Shell in the browser with the zip and the script
+  uploaded. It deploys `backend/` to Cloud Run as
+  `roadhouse-backend`, reads the service's public address, checks
+  it answers, writes the address into the package at
+  `apk/www/rh-config.json`, and refreshes the `roadhouse-apk.zip`
+  it found. See `backend/README.md` in the package for how the
+  backend works.
 
 The script reads `ROADHOUSE_KEYSTORE_BASE64` from
 `~/roadhouse-keystore-b64.txt` (it makes that file from
@@ -108,15 +137,27 @@ manual steps below are the same flow, for doing it by hand.
 2. When the run finishes, open it and download the artifact:
    `roadhouse-release-apk` if you set up signing, otherwise
    `roadhouse-debug-apk`. Unzip it to get the `.apk` file.
+   When signing is set up, the same run also publishes the signed
+   release APK as a **GitHub Release** (tagged `v1.0-<run number>`,
+   titled "RoadHouse"), so other drivers can download RoadHouse
+   straight from the repo's Releases page —
+   https://github.com/jeramyadams37-dev/roadhouse-app/releases —
+   without opening a workflow run. Share that link; each driver
+   downloads `app-release.apk` from the latest release and installs
+   it like any other APK.
 3. On the phone, open the APK and allow installing from your browser
    or Files app when Android asks. RoadHouse lands on the home screen
-   like any other app — and from then on it runs entirely on the
-   phone, online or off.
+   like any other app — the log, taxes, and tools run entirely on
+   the phone, online or off, and the board and chat go live against
+   the shared backend whenever the phone is online (once the backend
+   deploy above has run and its address is in the package).
 
 ## Files
 
-- `capacitor.config.ts` — app ID and name. No server URL: the app
-  is bundled, not loaded from a host.
+- `capacitor.config.ts` — app ID and name. No `server.url`: the
+  app is bundled, not loaded from a host (the header comment in the
+  file explains why). The shared backend's address lives in
+  `www/rh-config.json`, written by the deploy script.
 - `package.json` — Capacitor 6 dependencies and scripts.
 - `icon/` — the RoadHouse launcher icon (amber roadhouse at the end
   of a highway, on dark charcoal). `icon/res/` mirrors the Android
@@ -129,11 +170,16 @@ manual steps below are the same flow, for doing it by hand.
   and in the app drawer. `icon-512.png` / `icon-1024.png` are the
   full-size masters.
 - `www/` — the built RoadHouse web bundle (`index.html` +
-  `assets/`) that gets packaged into the APK. Refresh it with a
-  newer bundle when the app changes (setup step 2).
+  `assets/`) that gets packaged into the APK, plus `rh-config.json`
+  carrying the shared backend's public address (`null` until the
+  backend deploy script writes it). Refresh it with a newer bundle
+  when the app changes (setup step 2) — and keep the
+  `rh-config.json` the deploy script wrote.
 - `.github/workflows/build-apk.yml` — the GitHub Actions build:
   Node 20 + Java 17 + Android SDK, generates the Android project with
-  Capacitor, builds the debug APK, and builds the signed release APK
-  when the keystore secrets are present.
+  Capacitor, builds the debug APK, builds the signed release APK
+  when the keystore secrets are present, and — only when that signed
+  APK was built — publishes it as a GitHub Release (tag
+  `v1.0-<run number>`) other drivers can download.
 - The `android/` project is generated by Capacitor during the build
   (`npx cap add android`), so it isn't stored in the repo.

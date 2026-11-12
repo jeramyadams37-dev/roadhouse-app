@@ -12,6 +12,10 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    # Creating a GitHub Release needs write access to the repo's
+    # contents; everything else in this job only reads and builds.
+    permissions:
+      contents: write
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -126,3 +130,18 @@ jobs:
           name: roadhouse-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+      # Publish the signed release APK as a GitHub Release so other
+      # drivers can download RoadHouse from the repo's Releases page
+      # without opening a workflow run. Runs only when the signed
+      # release APK was actually built (signing secrets present).
+      # Each build gets its own tag from the run number, so releases
+      # never overwrite each other.
+      - name: Publish a GitHub Release with the signed release APK
+        if: steps.signing.outputs.signed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0-${{ github.run_number }}
+          name: RoadHouse
+          files: android/app/build/outputs/apk/release/app-release.apk
+          fail_on_unmatched_files: true
