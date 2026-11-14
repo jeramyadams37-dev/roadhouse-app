@@ -1,7 +1,9 @@
 {
   "dependencies": {
+    "@capacitor-firebase/messaging": "^6.0.0",
     "@capacitor/android": "^6.1.2",
-    "@capacitor/core": "^6.1.2"
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/geolocation": "^6.0.0"
   },
   "description": "RoadHouse Android app \u2014 Capacitor shell that bundles the standalone offline RoadHouse web app (data saved on the phone), built as an APK by GitHub Actions.",
   "devDependencies": {

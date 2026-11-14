@@ -128,6 +128,21 @@ manual steps below are the same flow, for doing it by hand.
 
    Skipping this step is fine to start: the workflow always builds a
    **debug APK** that installs and runs the same way.
+4. **(For fleet dispatch push notifications) Add the Firebase
+   config secret.** Push runs on Firebase Cloud Messaging in the
+   `ai-mechanic` Firebase project. Register the RoadHouse Android
+   app (package `com.atothei.roadhouse`) in that project in the
+   Firebase console, download the `google-services.json` it gives
+   you, base64 it (`base64 -w 0 google-services.json`), and add the
+   result as a fifth repo secret, `GOOGLE_SERVICES_JSON`. The
+   workflow installs it into the Android project before building;
+   the file itself is never committed. Without the secret the build
+   still succeeds — the APK just can't receive push until the
+   secret is set and it is rebuilt. The app registers the phone's
+   FCM token with the fleet backend when a driver joins a fleet
+   (and re-registers on app start and whenever Firebase rotates
+   the token); the backend sends the actual push when a dispatch
+   is stored, and tapping it opens RoadHouse on the Fleet tab.
 
 ## Build & install
 

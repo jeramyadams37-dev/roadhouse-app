@@ -63,6 +63,29 @@ jobs:
           npx cap add android
           npx cap sync android
 
+      # The @capacitor/geolocation plugin declares NO location
+      # permissions in its own manifest, and the android/ project
+      # is generated fresh on every run — without this step the
+      # generated AndroidManifest.xml declares only INTERNET, App
+      # info shows "No permissions requested", and the fleet
+      # on-duty location watch can never get a position. Insert
+      # both location permissions (idempotent: skip any already
+      # present) before anything is built.
+      - name: Declare location permissions in the Android manifest
+        run: |
+          set -e
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          test -f "$MANIFEST"
+          for PERM in android.permission.ACCESS_FINE_LOCATION android.permission.ACCESS_COARSE_LOCATION; do
+            if grep -q "$PERM" "$MANIFEST"; then
+              echo "already declared: $PERM"
+            else
+              sed -i "s|</manifest>|    <uses-permission android:name=\"$PERM\" />\n</manifest>|" "$MANIFEST"
+              echo "declared: $PERM"
+            fi
+          done
+          grep "uses-permission" "$MANIFEST"
+
       # Capacitor generates the android/ project with its own default
       # launcher icon. The RoadHouse icon set lives in this repo under
       # icon/res/ (mirrors the android res/ layout: ic_launcher.png,
@@ -80,6 +103,25 @@ jobs:
              android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png \
              android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png \
              android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+
+      # Firebase Cloud Messaging (fleet dispatch push): install
+      # google-services.json from the GOOGLE_SERVICES_JSON secret
+      # (base64 of the file, same pattern as the AutoHustle app)
+      # before any Gradle build runs. Capacitor's generated Android
+      # project applies the google-services Gradle plugin on its own
+      # when android/app/google-services.json exists, which is what
+      # lets FCM register this device for push. The file itself is
+      # never committed to the repo. If the secret is missing the
+      # build still succeeds — the APK just can't receive push
+      # notifications until the secret is set and it is rebuilt.
+      - name: Install google-services.json (Firebase)
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
+            echo "google-services.json installed"
+          else
+            echo "WARNING: GOOGLE_SERVICES_JSON secret is not set - push notifications will not work in this build"
+          fi
 
       - name: Build the debug APK (always — installs with no keystore)
         working-directory: android
